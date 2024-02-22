@@ -10,6 +10,7 @@
 #include <QQmlContext>
 #include <QQuickItem>
 #include <stdexcept>
+#include <optional>
 
 namespace spix {
 namespace qt {
@@ -17,6 +18,13 @@ namespace qt {
 const QString repeater_class_name = QString("QQuickRepeater");
 const char* item_at_method_name = "itemAt";
 
+
+/**
+ * @brief Wiederholen von ????
+ * @param repeater qml item 
+ * @param index an integer of 
+ * @return qml item 
+ */
 QQuickItem* RepeaterChildAtIndex(QQuickItem* repeater, int index)
 {
     QQuickItem* retVal = nullptr;
@@ -44,6 +52,12 @@ QQuickItem* RepeaterChildWithName(QQuickItem* repeater, const QString& name)
     return item;
 }
 
+/*!
+ * @brief Returns the ObjectName from Object if exists.
+ *
+ * @param object of the root Element
+ * @return string of name 
+ */
 QString GetObjectName(QObject* object)
 {
     if (object == nullptr) {
@@ -62,7 +76,60 @@ QString GetObjectName(QObject* object)
     return object->objectName();
 }
 
-QObject* FindChildItem(QObject* object, const QString& name)
+/*!
+ * @brief Returns the Property Text from a Object if exists.
+ *
+ * @param object of the root Element
+ * @return string of property text
+ */
+QString TextPropertyByObject(QObject* object)
+{
+   if (object == nullptr) {
+        return "";
+    }
+
+
+    auto objectText = object->property("text");
+    auto objectVisible = object->property("visible");
+
+    if (objectText.isNull() || objectVisible.isNull()) {
+        return "";
+    }
+
+    if (objectText.isValid() && objectVisible.toBool()) {
+        return objectText.toString();
+    }
+
+    return "";
+}
+
+/*!
+ * @brief Returns the Qml Type from a Object if exists.
+ *
+ * @param object of the root Element
+ * @return string of Qml Type
+ */
+QString TypeByObject(QObject* object)
+{
+   if (object == nullptr) {
+        return "";
+    }
+
+    auto typeName = QString(object->metaObject()->className());
+    typeName.replace(QRegExp("_QMLTYPE.*"), "");
+    return typeName;
+}
+
+
+/**
+ * @brief Find the Child of an Item 
+ * @param object of the root Element
+ * @param name 
+ * @param propertyText the property text of an QML Object
+ * @param type the type of an QML Object
+ * @return Searched Object
+ */
+QObject* FindChildItem(QObject* object, const QString& name, const std::optional<QString>& propertyText = {}, const std::optional<QString>& type = {} )
 {
     if (object == nullptr) {
         return nullptr;
@@ -71,22 +138,54 @@ QObject* FindChildItem(QObject* object, const QString& name)
     using Index = QObjectList::size_type;
     if (auto qquickitem = qobject_cast<const QQuickItem*>(object)) {
         for (Index i = 0; i < qquickitem->childItems().size(); ++i) {
-            auto child = qquickitem->childItems().at(i);
+            auto child = qquickitem->childItems().at(i);          
             if (GetObjectName(child) == name) {
                 return child;
             }
-            if (auto item = FindChildItem(child, name)) {
-                return item;
+            if (propertyText.has_value()) {
+                if (TextPropertyByObject(child) == propertyText.value()){
+                    return child; 
+                }
+ 
+                if (auto item = FindChildItem(child, name, propertyText, {})) {
+                    return item;
+                }
+            } else if (type.has_value()) {
+                if(TypeByObject(child) == type.value()){
+                    return child;
+                }
+
+                if (auto item = FindChildItem(child, name, {}, type)) {
+                    return item;
+                }
+
+            } else {
+                if (auto item = FindChildItem(child, name)) {
+                    return item;
+                }
             }
         }
     } else {
         for (Index i = 0; i < object->children().size(); ++i) {
             auto child = object->children().at(i);
+                qDebug() << "[FeustelInfo] FindChildItem() look at children: " << child->metaObject()->className();;
+                if (child )
             if (GetObjectName(child) == name) {
                 return child;
             }
-            if (auto item = FindChildItem(child, name)) {
-                return item;
+            
+            if (propertyText.has_value()) { 
+                if (auto item = FindChildItem(child, name, propertyText, {})) {
+                    return item;
+                }
+            } else if (type.has_value()) {
+                 if (auto item = FindChildItem(child, name, {}, type)) {
+                    return item;
+                }
+            } else {
+                 if (auto item = FindChildItem(child, name)) {
+                    return item;
+                }
             }
         }
     }
