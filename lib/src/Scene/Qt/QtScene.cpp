@@ -14,9 +14,10 @@
 #include <QObject>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QQuickItem>
 #include <QByteArray>
 #include <QBuffer>
-
+#include "QtEventFilter.cpp"
 
 namespace {
 
@@ -126,6 +127,46 @@ QQuickItem* getQQuickItemAtPath(const spix::ItemPath& path)
 
 namespace spix {
 
+/**
+Create a QtScene with an EventFilter
+**/
+QtScene::QtScene(){
+    m_filter = new QtEventFilter(qGuiApp);
+
+    QObject::connect(qGuiApp, &QGuiApplication::focusWindowChanged, qGuiApp, [this](QWindow* window){
+         if (m_eventFilterInstalled == false) {
+            m_eventFilterInstalled = true;
+            window->installEventFilter(m_filter);
+
+			QObject::connect(m_filter, &QtEventFilter::pickerModeEntered, m_filter, [](){
+				qDebug() << "Enter Curser Mode";
+				QGuiApplication::setOverrideCursor(QCursor(Qt::CrossCursor));
+			});
+
+			QObject::connect(m_filter, &QtEventFilter::pickerModeExited, m_filter, [](){
+				QGuiApplication::restoreOverrideCursor();
+			});
+
+			auto quickWindow = qobject_cast<QQuickWindow* >(window);
+			QObject::connect(m_filter, &QtEventFilter::pickClick, m_filter, [this, quickWindow](QMouseEvent* event){
+				qDebug() << "Got pickClick: " << event;
+				int bestCanidate = -1;
+				bool parentIsGoodCandidate = true;
+				auto objects = recursiveItemsAt(quickWindow->contentItem(), event->pos(), bestCanidate, parentIsGoodCandidate);
+				qDebug() << "Object gefunden : " << objects;
+				if (objects.size() == 1) {
+					auto quickItem = qobject_cast<QQuickItem* >(objects[0]);
+					quickItem->setOpacity(0.5);
+				}
+			});
+        }
+    });
+}
+
+QtScene::~QtScene(){
+    delete m_filter;
+}
+
 std::unique_ptr<Item> QtScene::itemAtPath(const ItemPath& path)
 {
     auto windowName = path.rootComponent();
@@ -193,22 +234,95 @@ std::string QtScene::takeScreenshotRemote(const ItemPath& targetItem)
     // crop the window image to the item rect
     auto image = windowImage.copy(imageCropRect);
     
-    qDebug() << "Convert Image";
-    
     QByteArray byteArray;
     QBuffer buffer(&byteArray);
     buffer.open(QIODevice::WriteOnly);
-    
-    qDebug() << "Save Image in Buffer ";
     image.save(&buffer, "PNG");
-    qDebug() << "Saved Image in Buffer";
     buffer.close();
     
-    // std::string stdString(byteArray.constData(), byteArray.length());
-    
-    qDebug() << "return base64 Image";
-    //return "Bild";
     return byteArray.toBase64().toStdString();
+}
+
+bool QtScene::itemHasContents(QQuickItem *item)
+{
+    return item->flags().testFlag(QQuickItem::ItemHasContents);
+}
+
+bool QtScene::isGoodCandidateItem(QQuickItem *item, bool ignoreItemHasContents = false)
+{
+    return !(!item->isVisible() || qFuzzyCompare(item->opacity() + qreal(1.0), qreal(1.0)) || (!ignoreItemHasContents && !itemHasContents(item)));
+}
+/**
+	Search for best matching Object on the Position.
+**/
+ObjectIds QtScene::recursiveItemsAt(QQuickItem *parent, const QPointF &pos, int &bestCandidate, bool parentIsGoodCandidate)
+{
+	 Q_ASSERT(parent); // nulll check
+     ObjectIds objects;
+
+	auto printName = QString("");
+	if (spix::qt::GetObjectName(parent) != "" ){
+		printName = spix::qt::GetObjectName(parent) + "/";
+	} else {
+		printName = "#" + spix::qt::TypeByObject(parent) + "/";
+	}
+	qDebug() << "Parent: "<< printName;
+
+	bestCandidate = -1;
+    if (parentIsGoodCandidate) {
+        // inherit the parent item opacity when looking for a good candidate item
+        // i.e. QQuickItem::isVisible is taking the parent into account already, but
+        // the opacity doesn't - we have to do this manually
+        // Yet we have to ignore ItemHasContents apparently, as the QQuickRootItem
+        // at least seems to not have this flag set.
+        parentIsGoodCandidate = isGoodCandidateItem(parent, true);
+    }
+
+	// sorting based on z positon
+    auto childItems = parent->childItems();
+    std::stable_sort(childItems.begin(), childItems.end(),
+                     [](QQuickItem *lhs, QQuickItem *rhs) { return lhs->z() < rhs->z(); });
+
+    for (int i = childItems.size() - 1; i >= 0; --i) { // backwards to match z order
+        const auto child = childItems.at(i);
+        // position of child
+        const auto requestedPoint = parent->mapToItem(child, pos);
+
+        if (!child->childItems().isEmpty() && (child->contains(requestedPoint) || child->childrenRect().contains(requestedPoint))) {
+            const int count = objects.count();
+            int bc; // possibly better candidate among subChildren
+
+            objects << recursiveItemsAt(child, requestedPoint, bc, parentIsGoodCandidate);
+
+            if (bestCandidate == -1 && parentIsGoodCandidate && bc != -1) {
+                bestCandidate = count + bc;
+            }
+        }
+
+        if (child->contains(requestedPoint)) {
+            if (bestCandidate == -1 && parentIsGoodCandidate && isGoodCandidateItem(child)) {
+                bestCandidate = objects.count();
+            }
+            objects << child;
+        }
+
+        if (bestCandidate != -1) {
+            break;
+        }
+    }
+
+    if (bestCandidate == -1 && parentIsGoodCandidate && itemHasContents(parent)) {
+        bestCandidate = objects.count();
+    }
+
+    objects << parent;
+
+    if (bestCandidate != -1) {
+        objects = ObjectIds() << objects[bestCandidate];
+        bestCandidate = 0;
+    }
+
+    return objects;
 }
 
 } // namespace spix
