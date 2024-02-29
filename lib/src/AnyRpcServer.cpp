@@ -98,6 +98,12 @@ AnyRpcServer::AnyRpcServer(int anyrpcPort)
         [this](std::string targetItem, std::string filePath) {
             return takeScreenshot(std::move(targetItem), std::move(filePath));
         });
+    
+    utils::AddFunctionToAnyRpc<std::string(std::string)>(methodManager, "takeScreenshotRemote",
+        "Take a screenshot of the object and send as base64 string | takeScreenshotRemote(string pathToTargetedItem)",
+        [this](std::string targetItem) {
+            return takeScreenshotRemote(std::move(targetItem));
+        });
 
     utils::AddFunctionToAnyRpc<void()>(methodManager, "quit", "Close the app | quit()", [this] { quit(); });
 
