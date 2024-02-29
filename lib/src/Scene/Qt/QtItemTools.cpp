@@ -116,7 +116,7 @@ QString TypeByObject(QObject* object)
     }
 
     auto typeName = QString(object->metaObject()->className());
-    typeName.replace(QRegExp("_QMLTYPE.*"), "");
+    typeName.replace(QRegExp("_QML.*"), "");
     return typeName;
 }
 
@@ -168,8 +168,6 @@ QObject* FindChildItem(QObject* object, const QString& name, const std::optional
     } else {
         for (Index i = 0; i < object->children().size(); ++i) {
             auto child = object->children().at(i);
-                qDebug() << "[FeustelInfo] FindChildItem() look at children: " << child->metaObject()->className();;
-                if (child )
             if (GetObjectName(child) == name) {
                 return child;
             }
