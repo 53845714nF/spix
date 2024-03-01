@@ -73,11 +73,10 @@ QQuickItem* getQQuickItemWithRoot(const spix::ItemPath& path, QObject* root)
     } else if (itemName.compare(0, 1, "\"") == 0) {
         auto propertyName = itemName.substr(1);
         QVariant propertyValue = root->property(propertyName.c_str());
-        
+
         size_t found = itemName.find("\"");
         auto searchText = itemName.substr(found +1, itemName.length() -2);
         subItem = spix::qt::FindChildItem<QQuickItem*>(root, itemName.c_str(), QString::fromStdString(searchText), {});
-
     } else if (itemName.compare(0, 1, "#") == 0) {
         auto propertyName = itemName.substr(1);
         QVariant propertyValue = root->property(propertyName.c_str());
@@ -137,6 +136,18 @@ QtScene::QtScene(){
          if (m_eventFilterInstalled == false) {
             m_eventFilterInstalled = true;
             window->installEventFilter(m_filter);
+            auto getName = [](QObject* object){
+                auto printName = QString("");
+                
+                if (spix::qt::TextPropertyByObject(object) != ""){
+                    printName = "\"" + spix::qt::TextPropertyByObject(object) + "\"";
+                } else if (spix::qt::GetObjectName(object) != "" ){
+                    printName = spix::qt::GetObjectName(object);
+                } else {
+                    printName = "#" + spix::qt::TypeByObject(object);
+                }
+                return printName;
+            };
 
 			QObject::connect(m_filter, &QtEventFilter::pickerModeEntered, m_filter, [](){
 				qDebug() << "Enter Curser Mode";
@@ -148,15 +159,15 @@ QtScene::QtScene(){
 			});
 
 			auto quickWindow = qobject_cast<QQuickWindow* >(window);
-			QObject::connect(m_filter, &QtEventFilter::pickClick, m_filter, [this, quickWindow](QMouseEvent* event){
-				qDebug() << "Got pickClick: " << event;
+			QObject::connect(m_filter, &QtEventFilter::pickClick, m_filter, [this, getName, quickWindow](QMouseEvent* event){
 				int bestCanidate = -1;
 				bool parentIsGoodCandidate = true;
-				auto objects = recursiveItemsAt(quickWindow->contentItem(), event->pos(), bestCanidate, parentIsGoodCandidate);
-				qDebug() << "Object gefunden : " << objects;
+                QString path = spix::qt::GetObjectName(quickWindow) + "/";
+				auto objects = recursiveItemsAt(quickWindow->contentItem(), event->pos(), bestCanidate, parentIsGoodCandidate, path);
 				if (objects.size() == 1) {
 					auto quickItem = qobject_cast<QQuickItem* >(objects[0]);
 					quickItem->setOpacity(0.5);
+                    path += getName(quickItem);
 				}
 			});
         }
@@ -255,18 +266,25 @@ bool QtScene::isGoodCandidateItem(QQuickItem *item, bool ignoreItemHasContents =
 /**
 	Search for best matching Object on the Position.
 **/
-ObjectIds QtScene::recursiveItemsAt(QQuickItem *parent, const QPointF &pos, int &bestCandidate, bool parentIsGoodCandidate)
+ObjectIds QtScene::recursiveItemsAt(QQuickItem *parent, const QPointF &pos, int &bestCandidate, bool parentIsGoodCandidate, QString& path)
 {
 	 Q_ASSERT(parent); // nulll check
      ObjectIds objects;
 
-	auto printName = QString("");
-	if (spix::qt::GetObjectName(parent) != "" ){
-		printName = spix::qt::GetObjectName(parent) + "/";
-	} else {
-		printName = "#" + spix::qt::TypeByObject(parent) + "/";
-	}
-	qDebug() << "Parent: "<< printName;
+	auto getName = [](QObject* object){
+        auto printName = QString("");
+        if (spix::qt::TextPropertyByObject(object) != ""){
+            printName = "\"" + spix::qt::TextPropertyByObject(object) + "\"/";
+        } else if (spix::qt::GetObjectName(object) != "" ){
+            printName = spix::qt::GetObjectName(object) + "/";
+        } else {
+            printName = "#" + spix::qt::TypeByObject(object) + "/";
+        }
+        return printName;
+    };
+	if (isGoodCandidateItem(parent)){
+        path += getName(parent);
+    }
 
 	bestCandidate = -1;
     if (parentIsGoodCandidate) {
@@ -292,7 +310,7 @@ ObjectIds QtScene::recursiveItemsAt(QQuickItem *parent, const QPointF &pos, int 
             const int count = objects.count();
             int bc; // possibly better candidate among subChildren
 
-            objects << recursiveItemsAt(child, requestedPoint, bc, parentIsGoodCandidate);
+            objects << recursiveItemsAt(child, requestedPoint, bc, parentIsGoodCandidate, path);
 
             if (bestCandidate == -1 && parentIsGoodCandidate && bc != -1) {
                 bestCandidate = count + bc;
