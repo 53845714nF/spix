@@ -69,6 +69,17 @@ int unpackAnyRpcParam(anyrpc::Value& value)
     return value.GetInt();
 }
 
+
+template <>
+double unpackAnyRpcParam(anyrpc::Value& value)
+{
+    if (!value.IsNumber()) {
+        throw anyrpc::AnyRpcException(anyrpc::AnyRpcErrorInvalidParams, "Invalid parameters. Expected double.");
+    }
+    return value.GetDouble();
+}
+
+
 template <>
 unsigned unpackAnyRpcParam(anyrpc::Value& value)
 {
