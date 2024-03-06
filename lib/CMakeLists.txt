@@ -110,7 +110,11 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX source FILES ${SOURCES})
 #
 # Qt MOC Files
 #
-cmake_language(CALL "qt${SPIX_QT_MAJOR}_wrap_cpp" MOC_FILES "include/Spix/QtQmlBot.h")
+if(CMAKE_VERSION VERSION_LESS "3.18.0") 
+    set(CMAKE_AUTOMOC ON)
+else()
+    cmake_language(CALL "qt${SPIX_QT_MAJOR}_wrap_cpp" MOC_FILES "include/Spix/QtQmlBot.h" "src/Scene/Qt/QtEventFilter.h")
+endif()
 
 
 #
