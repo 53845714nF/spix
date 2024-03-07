@@ -37,7 +37,7 @@ public:
     // Tasks
     void takeScreenshot(const ItemPath& targetItem, const std::string& filePath) override;
     std::string takeScreenshotRemote(const ItemPath& targetItem);
-	ObjectIds recursiveItemsAt(QQuickItem *parent, const QPointF &pos, int &bestCandidate, bool parentIsGoodCandidate, QString& path);
+	ObjectIds recursiveItemsAt(QQuickItem *parent, const QPointF &pos, int &bestCandidate, bool parentIsGoodCandidate);
 
 private:
     QtEvents m_events;

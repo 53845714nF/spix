@@ -22,6 +22,67 @@
 namespace {
 
 /**
+ * @brief Return a Name for QObject object
+ * @param object as QObject
+ * @return A name based on avilable patterns.  
+*/
+
+QString getNameForObject(QObject* object){
+    QString name; 
+    if (spix::qt::TextPropertyByObject(object) != ""){
+        name = "\"" + spix::qt::TextPropertyByObject(object) + "\"";
+    } else if (spix::qt::GetObjectName(object) != "" ){
+        name  = spix::qt::GetObjectName(object);
+    } else {
+        name = "#" + spix::qt::TypeByObject(object);
+    }
+
+    return name;
+}
+
+QString pathForObject(QObject* object){
+    auto currentItem = object;
+    QString path = "";
+    /*
+    if (currentItem != nullptr && currentItem->parent() != nullptr) {
+        auto siblings = currentItem->parent()->children();
+        for(const auto child: siblings){
+            if ( != spix::qt::TextPropertyByObject(child)){
+                return "Not unique Path";
+            }
+        }
+    }*/
+
+    while (currentItem != nullptr) {
+        // take object name if given        
+        auto token = getNameForObject(currentItem);
+        int sameNameNumber = 0;
+        
+        if (currentItem->parent() != nullptr){
+            
+            auto siblings = currentItem->parent()->children();
+            for(const auto child: siblings){
+                if (token == getNameForObject(child)){
+                    sameNameNumber++;
+                }
+            }
+        }
+        
+        currentItem = currentItem->parent();
+        
+        if (sameNameNumber > 1) {
+            continue;
+        }
+        // add id to front
+        path = token + "/" + path;
+    }
+    
+    return path;
+}
+
+
+
+/**
  * @brief Return root element from QML
  * @param name of the root Element
  * @return the root element 
@@ -62,6 +123,7 @@ QQuickItem* getQQuickItemWithRoot(const spix::ItemPath& path, QObject* root)
     auto rootClassName = root->metaObject()->className();
     auto itemName = path.rootComponent();
     QQuickItem* subItem = nullptr;
+    QVector<QObject*> subItems = {};
 
     if (itemName.compare(0, 1, ".") == 0) {
         auto propertyName = itemName.substr(1);
@@ -75,15 +137,24 @@ QQuickItem* getQQuickItemWithRoot(const spix::ItemPath& path, QObject* root)
         QVariant propertyValue = root->property(propertyName.c_str());
 
         size_t found = itemName.find("\"");
-        auto searchText = itemName.substr(found +1, itemName.length() -2);
+        auto searchText = itemName.substr(found +1, itemName.length() -2); 
         subItem = spix::qt::FindChildItem<QQuickItem*>(root, itemName.c_str(), QString::fromStdString(searchText), {});
-    } else if (itemName.compare(0, 1, "#") == 0) {
-        auto propertyName = itemName.substr(1);
-        QVariant propertyValue = root->property(propertyName.c_str());
-        
+    
+    } else if (itemName.compare(0, 1, "#") == 0) {        
         size_t found = itemName.find("#");
         auto type = QString::fromStdString(itemName.substr(found +1));
-        subItem = spix::qt::FindChildItem<QQuickItem*>(root, itemName.c_str(), {}, type);
+        
+        qDebug() << "Type: " << type;
+        subItems = spix::qt::FindChildItems(root, type);
+        qDebug() << "Sub Items: " << subItems;
+        
+        for (const auto item: subItems){
+            auto foundItem = getQQuickItemWithRoot(path.subPath(1), item);
+            if (foundItem != nullptr) {
+                return foundItem;
+            }
+        }
+
     } else if (rootClassName == spix::qt::repeater_class_name) {
         QQuickItem* repeater = static_cast<QQuickItem*>(root);
         subItem = spix::qt::RepeaterChildWithName(repeater, QString::fromStdString(itemName));
@@ -136,18 +207,6 @@ QtScene::QtScene(){
          if (m_eventFilterInstalled == false) {
             m_eventFilterInstalled = true;
             window->installEventFilter(m_filter);
-            auto getName = [](QObject* object){
-                auto printName = QString("");
-                
-                if (spix::qt::TextPropertyByObject(object) != ""){
-                    printName = "\"" + spix::qt::TextPropertyByObject(object) + "\"";
-                } else if (spix::qt::GetObjectName(object) != "" ){
-                    printName = spix::qt::GetObjectName(object);
-                } else {
-                    printName = "#" + spix::qt::TypeByObject(object);
-                }
-                return printName;
-            };
 
 			QObject::connect(m_filter, &QtEventFilter::pickerModeEntered, m_filter, [](){
 				qDebug() << "Enter Curser Mode";
@@ -159,16 +218,18 @@ QtScene::QtScene(){
 			});
 
 			auto quickWindow = qobject_cast<QQuickWindow* >(window);
-			QObject::connect(m_filter, &QtEventFilter::pickClick, m_filter, [this, getName, quickWindow](QMouseEvent* event){
+			QObject::connect(m_filter, &QtEventFilter::pickClick, m_filter, [this, quickWindow](QMouseEvent* event){
 				int bestCanidate = -1;
 				bool parentIsGoodCandidate = true;
-                QString path = spix::qt::GetObjectName(quickWindow) + "/";
-				auto objects = recursiveItemsAt(quickWindow->contentItem(), event->pos(), bestCanidate, parentIsGoodCandidate, path);
-				if (objects.size() == 1) {
+				auto objects = recursiveItemsAt(quickWindow->contentItem(), event->pos(), bestCanidate, parentIsGoodCandidate);
+				
+                if (objects.size() == 1) {
 					auto quickItem = qobject_cast<QQuickItem* >(objects[0]);
 					quickItem->setOpacity(0.5);
-                    path += getName(quickItem);
+                    auto path = pathForObject(quickItem);
+                    qDebug() << path;
 				}
+                
 			});
         }
     });
@@ -266,25 +327,10 @@ bool QtScene::isGoodCandidateItem(QQuickItem *item, bool ignoreItemHasContents =
 /**
 	Search for best matching Object on the Position.
 **/
-ObjectIds QtScene::recursiveItemsAt(QQuickItem *parent, const QPointF &pos, int &bestCandidate, bool parentIsGoodCandidate, QString& path)
+ObjectIds QtScene::recursiveItemsAt(QQuickItem *parent, const QPointF &pos, int &bestCandidate, bool parentIsGoodCandidate)
 {
 	 Q_ASSERT(parent); // nulll check
      ObjectIds objects;
-
-	auto getName = [](QObject* object){
-        auto printName = QString("");
-        if (spix::qt::TextPropertyByObject(object) != ""){
-            printName = "\"" + spix::qt::TextPropertyByObject(object) + "\"/";
-        } else if (spix::qt::GetObjectName(object) != "" ){
-            printName = spix::qt::GetObjectName(object) + "/";
-        } else {
-            printName = "#" + spix::qt::TypeByObject(object) + "/";
-        }
-        return printName;
-    };
-	if (isGoodCandidateItem(parent)){
-        path += getName(parent);
-    }
 
 	bestCandidate = -1;
     if (parentIsGoodCandidate) {
@@ -310,7 +356,7 @@ ObjectIds QtScene::recursiveItemsAt(QQuickItem *parent, const QPointF &pos, int 
             const int count = objects.count();
             int bc; // possibly better candidate among subChildren
 
-            objects << recursiveItemsAt(child, requestedPoint, bc, parentIsGoodCandidate, path);
+            objects << recursiveItemsAt(child, requestedPoint, bc, parentIsGoodCandidate);
 
             if (bestCandidate == -1 && parentIsGoodCandidate && bc != -1) {
                 bestCandidate = count + bc;

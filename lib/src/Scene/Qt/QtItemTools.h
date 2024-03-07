@@ -37,6 +37,7 @@ QString TextPropertyByObject(QObject* object);
  * `children()`, but rather its `childItems()`.
  */
 QObject* FindChildItem(QObject* object, const QString& name, const std::optional<QString>& propertyText, const std::optional<QString>& type);
+QVector<QObject* > FindChildItems(QObject* object, const std::optional<QString>& type);
 
 template <typename T>
 T FindChildItem(QObject* object, const QString& name, const std::optional<QString>& propertyText, const std::optional<QString>& type)

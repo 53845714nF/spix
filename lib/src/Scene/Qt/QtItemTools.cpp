@@ -151,7 +151,7 @@ QObject* FindChildItem(QObject* object, const QString& name, const std::optional
                     return item;
                 }
             } else if (type.has_value()) {
-                if(TypeByObject(child) == type.value()){
+                if(TypeByObject(child) == type.value()){              
                     return child;
                 }
 
@@ -177,7 +177,7 @@ QObject* FindChildItem(QObject* object, const QString& name, const std::optional
                     return item;
                 }
             } else if (type.has_value()) {
-                 if (auto item = FindChildItem(child, name, {}, type)) {
+                 if (auto item = FindChildItem(child, name, {}, type)) {               
                     return item;
                 }
             } else {
@@ -189,6 +189,39 @@ QObject* FindChildItem(QObject* object, const QString& name, const std::optional
     }
 
     return nullptr;
+}
+
+QVector<QObject* > FindChildItems(QObject* object, const std::optional<QString>& type = {} )
+{
+    QVector<QObject*> result = {};
+    qDebug() << "Object:  "  << object << "Type:" << type.value();
+    if (object == nullptr) {
+        return {};
+    }
+
+    using Index = QObjectList::size_type;
+    if (auto qquickitem = qobject_cast<const QQuickItem*>(object)) {
+        for (Index i = 0; i < qquickitem->childItems().size(); ++i) {
+            auto child = qquickitem->childItems().at(i); 
+            qDebug() << "Chilt Item: " << child;
+            result = result + FindChildItems(child, type);
+            if (type.has_value() && TypeByObject(child) == type.value()){
+                qDebug() << "Looking at: " << type.value();
+                result.push_back(child);
+            }
+        }
+    } else {
+        for (Index i = 0; i < object->children().size(); ++i) {
+            auto child = object->children().at(i);
+            qDebug() << "Chilt Objs: " << child;
+            result = result + FindChildItems(child, type);
+            if (type.has_value() && TypeByObject(child) == type.value()){
+                qDebug() << "Looking at: " << type.value();
+                result.push_back(child);
+            }
+        }
+    }
+    return result;
 }
 
 QGenericReturnArgument GetReturnArgForQMetaType(int type, QMLReturnVariant& retVar)
