@@ -10,29 +10,30 @@
 #include <Scene/Qt/QtItemTools.h>
 #include <Spix/Data/ItemPath.h>
 
+#include "QtEventFilter.cpp"
+#include <QBuffer>
+#include <QByteArray>
 #include <QGuiApplication>
 #include <QObject>
 #include <QQuickItem>
 #include <QQuickWindow>
-#include <QQuickItem>
-#include <QByteArray>
-#include <QBuffer>
-#include "QtEventFilter.cpp"
 
 namespace {
 
 /**
  * @brief Return a Name for QObject object
  * @param object as QObject
- * @return A name based on avilable patterns.  
-*/
+ * @return A name based on avilable patterns.
+ */
 
-QString getNameForObject(QObject* object){
-    QString name; 
-    if (spix::qt::TextPropertyByObject(object) != ""){
+QString getNameForObject(QObject* object)
+{
+    QString name;
+
+    if (spix::qt::TextPropertyByObject(object) != "") {
         name = "\"" + spix::qt::TextPropertyByObject(object) + "\"";
-    } else if (spix::qt::GetObjectName(object) != "" ){
-        name  = spix::qt::GetObjectName(object);
+    } else if (spix::qt::GetObjectName(object) != "") {
+        name = spix::qt::GetObjectName(object);
     } else {
         name = "#" + spix::qt::TypeByObject(object);
     }
@@ -40,52 +41,55 @@ QString getNameForObject(QObject* object){
     return name;
 }
 
-QString pathForObject(QObject* object){
+spix::ItemPath ItemPathForObject(QObject* object)
+{
     auto currentItem = object;
     QString path = "";
-    /*
-    if (currentItem != nullptr && currentItem->parent() != nullptr) {
-        auto siblings = currentItem->parent()->children();
-        for(const auto child: siblings){
-            if ( != spix::qt::TextPropertyByObject(child)){
-                return "Not unique Path";
-            }
-        }
-    }*/
 
     while (currentItem != nullptr) {
-        // take object name if given        
+        // take object name if given
         auto token = getNameForObject(currentItem);
         int sameNameNumber = 0;
-        
-        if (currentItem->parent() != nullptr){
-            
+
+        const auto currentQuickItem = qobject_cast<QQuickItem*>(currentItem);
+
+        if (currentItem->parent() != nullptr) {
             auto siblings = currentItem->parent()->children();
-            for(const auto child: siblings){
-                if (token == getNameForObject(child)){
+            for (const auto child : siblings) {
+                if (token == getNameForObject(child)) {
+                    sameNameNumber++;
+                }
+            }
+        } else if (currentQuickItem != nullptr && currentQuickItem->parentItem()) {
+            auto siblings = currentQuickItem->parentItem()->children();
+            for (const auto child : siblings) {
+                if (token == getNameForObject(child)) {
                     sameNameNumber++;
                 }
             }
         }
-        
-        currentItem = currentItem->parent();
-        
+
+        if ((currentItem->parent() == nullptr)
+            && (currentQuickItem != nullptr && currentQuickItem->parentItem() != nullptr)) {
+            currentItem = currentQuickItem->parentItem();
+        } else {
+            currentItem = currentItem->parent();
+        }
+
         if (sameNameNumber > 1) {
             continue;
         }
         // add id to front
         path = token + "/" + path;
     }
-    
-    return path;
+    qDebug() << "Long Path: " << path;
+    return spix::ItemPath(path.toStdString());
 }
-
-
 
 /**
  * @brief Return root element from QML
  * @param name of the root Element
- * @return the root element 
+ * @return the root element
  */
 QQuickWindow* getQQuickWindowWithName(const std::string& name)
 {
@@ -107,9 +111,9 @@ QQuickWindow* getQQuickWindowWithName(const std::string& name)
 /**
  * @brief Return QML-Item from Path with Root Element
  *
- * @param path is ItemPath 
+ * @param path is ItemPath
  * @param root ist the root Element
- * @return Qml Item 
+ * @return Qml Item
  */
 QQuickItem* getQQuickItemWithRoot(const spix::ItemPath& path, QObject* root)
 {
@@ -137,18 +141,16 @@ QQuickItem* getQQuickItemWithRoot(const spix::ItemPath& path, QObject* root)
         QVariant propertyValue = root->property(propertyName.c_str());
 
         size_t found = itemName.find("\"");
-        auto searchText = itemName.substr(found +1, itemName.length() -2); 
+        auto searchText = itemName.substr(found + 1, itemName.length() - 2);
         subItem = spix::qt::FindChildItem<QQuickItem*>(root, itemName.c_str(), QString::fromStdString(searchText), {});
-    
-    } else if (itemName.compare(0, 1, "#") == 0) {        
+
+    } else if (itemName.compare(0, 1, "#") == 0) {
         size_t found = itemName.find("#");
-        auto type = QString::fromStdString(itemName.substr(found +1));
-        
-        qDebug() << "Type: " << type;
+        auto type = QString::fromStdString(itemName.substr(found + 1));
+
         subItems = spix::qt::FindChildItems(root, type);
-        qDebug() << "Sub Items: " << subItems;
-        
-        for (const auto item: subItems){
+
+        for (const auto item : subItems) {
             auto foundItem = getQQuickItemWithRoot(path.subPath(1), item);
             if (foundItem != nullptr) {
                 return foundItem;
@@ -170,12 +172,12 @@ QQuickItem* getQQuickItemWithRoot(const spix::ItemPath& path, QObject* root)
 }
 
 /**
- * @brief Return QML-Item for a Path 
+ * @brief Return QML-Item for a Path
  * @param path to the QML Item
- * @return QML Item 
+ * @return QML Item
  */
 QQuickItem* getQQuickItemAtPath(const spix::ItemPath& path)
-{   
+{
     auto windowName = path.rootComponent();
     QQuickWindow* itemWindow = getQQuickWindowWithName(windowName);
     QQuickItem* item = nullptr;
@@ -189,7 +191,7 @@ QQuickItem* getQQuickItemAtPath(const spix::ItemPath& path)
     } else {
         item = itemWindow->contentItem();
     }
-    
+
     return item;
 }
 
@@ -200,42 +202,46 @@ namespace spix {
 /**
 Create a QtScene with an EventFilter
 **/
-QtScene::QtScene(){
+QtScene::QtScene()
+{
     m_filter = new QtEventFilter(qGuiApp);
 
-    QObject::connect(qGuiApp, &QGuiApplication::focusWindowChanged, qGuiApp, [this](QWindow* window){
-         if (m_eventFilterInstalled == false) {
+    QObject::connect(qGuiApp, &QGuiApplication::focusWindowChanged, qGuiApp, [this](QWindow* window) {
+        if (m_eventFilterInstalled == false) {
             m_eventFilterInstalled = true;
             window->installEventFilter(m_filter);
 
-			QObject::connect(m_filter, &QtEventFilter::pickerModeEntered, m_filter, [](){
-				qDebug() << "Enter Curser Mode";
-				QGuiApplication::setOverrideCursor(QCursor(Qt::CrossCursor));
-			});
+            QObject::connect(m_filter, &QtEventFilter::pickerModeEntered, m_filter, []() {
+                qDebug() << "Enter Curser Mode";
+                QGuiApplication::setOverrideCursor(QCursor(Qt::CrossCursor));
+            });
 
-			QObject::connect(m_filter, &QtEventFilter::pickerModeExited, m_filter, [](){
-				QGuiApplication::restoreOverrideCursor();
-			});
+            QObject::connect(m_filter, &QtEventFilter::pickerModeExited, m_filter,
+                []() { QGuiApplication::restoreOverrideCursor(); });
 
-			auto quickWindow = qobject_cast<QQuickWindow* >(window);
-			QObject::connect(m_filter, &QtEventFilter::pickClick, m_filter, [this, quickWindow](QMouseEvent* event){
-				int bestCanidate = -1;
-				bool parentIsGoodCandidate = true;
-				auto objects = recursiveItemsAt(quickWindow->contentItem(), event->pos(), bestCanidate, parentIsGoodCandidate);
-				
+            auto quickWindow = qobject_cast<QQuickWindow*>(window);
+            QObject::connect(m_filter, &QtEventFilter::pickClick, m_filter, [this, quickWindow](QMouseEvent* event) {
+                int bestCanidate = -1;
+                bool parentIsGoodCandidate = true;
+                auto objects
+                    = recursiveItemsAt(quickWindow->contentItem(), event->pos(), bestCanidate, parentIsGoodCandidate);
+
                 if (objects.size() == 1) {
-					auto quickItem = qobject_cast<QQuickItem* >(objects[0]);
-					quickItem->setOpacity(0.5);
-                    auto path = pathForObject(quickItem);
-                    qDebug() << path;
-				}
-                
-			});
+                    auto quickItem = qobject_cast<QQuickItem*>(objects[0]);
+                    quickItem->setOpacity(0.5);
+                    auto itemPath = ItemPathForObject(quickItem);
+
+                    // qDebug() << path;
+                    auto newPath = shortPath(itemPath, quickItem);
+                    qDebug() << "Short Path: " << QString::fromUtf8(newPath.string().c_str());
+                }
+            });
         }
     });
 }
 
-QtScene::~QtScene(){
+QtScene::~QtScene()
+{
     delete m_filter;
 }
 
@@ -257,6 +263,38 @@ std::unique_ptr<Item> QtScene::itemAtPath(const ItemPath& path)
         return {};
     }
     return std::make_unique<QtItem>(item);
+}
+
+spix::ItemPath QtScene::shortPath(ItemPath oldPath, QQuickItem* oldItem)
+{
+    spix::ItemPath newItemPath;
+    QQuickItem* newItem;
+    std::string tempNewItemPath = oldPath.rootComponent();
+
+    auto partsPath = oldPath.components();
+
+    for (auto part = partsPath.rbegin(); part != std::prev(partsPath.rend()); ++part) {
+
+        size_t found = tempNewItemPath.find("/");
+        if (found != std::string::npos) {
+            auto subfix = tempNewItemPath.substr(found + 1, tempNewItemPath.length());
+            tempNewItemPath = oldPath.rootComponent().append("/").append(part->c_str()).append("/").append(subfix);
+        } else {
+            tempNewItemPath.append("/").append(part->c_str());
+        }
+
+        // qDebug() << QString::fromUtf8(tempNewItemPath.c_str());
+
+        auto newItem = getQQuickItemAtPath(ItemPath(tempNewItemPath));
+
+        qDebug() << "New Item: " << qobject_cast<QQuickItem*>(newItem);
+        qDebug() << "Old Item: " << qobject_cast<QQuickItem*>(oldItem);
+
+        if (newItem == oldItem) {
+            newItemPath = ItemPath(tempNewItemPath);
+            return newItemPath;
+        }
+    }
 }
 
 Events& QtScene::events()
@@ -305,34 +343,61 @@ std::string QtScene::takeScreenshotRemote(const ItemPath& targetItem)
 
     // crop the window image to the item rect
     auto image = windowImage.copy(imageCropRect);
-    
+
     QByteArray byteArray;
     QBuffer buffer(&byteArray);
     buffer.open(QIODevice::WriteOnly);
     image.save(&buffer, "PNG");
     buffer.close();
-    
+
     return byteArray.toBase64().toStdString();
 }
 
-bool QtScene::itemHasContents(QQuickItem *item)
+bool QtScene::itemHasContents(QQuickItem* item)
 {
     return item->flags().testFlag(QQuickItem::ItemHasContents);
 }
 
-bool QtScene::isGoodCandidateItem(QQuickItem *item, bool ignoreItemHasContents = false)
+bool QtScene::isGoodCandidateItem(QQuickItem* item, bool ignoreItemHasContents = false)
 {
-    return !(!item->isVisible() || qFuzzyCompare(item->opacity() + qreal(1.0), qreal(1.0)) || (!ignoreItemHasContents && !itemHasContents(item)));
+    return !(!item->isVisible() || qFuzzyCompare(item->opacity() + qreal(1.0), qreal(1.0))
+        || (!ignoreItemHasContents && !itemHasContents(item)));
 }
-/**
-	Search for best matching Object on the Position.
-**/
-ObjectIds QtScene::recursiveItemsAt(QQuickItem *parent, const QPointF &pos, int &bestCandidate, bool parentIsGoodCandidate)
-{
-	 Q_ASSERT(parent); // nulll check
-     ObjectIds objects;
 
-	bestCandidate = -1;
+QRectF QtScene::combinedChildrenRect(QQuickItem* object) const
+{
+    auto rect = object->childrenRect();
+
+    for (const auto child : object->childItems()) {
+        // Get Rect from Childitems
+        auto childRect = child->childrenRect();
+
+        // Get Global positon of childRect
+        QPointF childGlobalPos = child->mapToScene(QPointF(0, 0));
+
+        // Convert global position to local coordinates of the parent object
+        QPointF localChildPos = object->mapFromScene(childGlobalPos);
+
+        // Adjust childRect to be in local coordinates of the parent object
+        childRect.moveTopLeft(localChildPos.toPoint());
+
+        // Adding the childRect to the rect
+        rect = rect.united(childRect);
+    }
+
+    return rect;
+}
+
+/**
+        Search for best matching Object on the Position.
+**/
+ObjectIds QtScene::recursiveItemsAt(
+    QQuickItem* parent, const QPointF& pos, int& bestCandidate, bool parentIsGoodCandidate)
+{
+    Q_ASSERT(parent); // nulll check
+    ObjectIds objects;
+
+    bestCandidate = -1;
     if (parentIsGoodCandidate) {
         // inherit the parent item opacity when looking for a good candidate item
         // i.e. QQuickItem::isVisible is taking the parent into account already, but
@@ -342,17 +407,18 @@ ObjectIds QtScene::recursiveItemsAt(QQuickItem *parent, const QPointF &pos, int 
         parentIsGoodCandidate = isGoodCandidateItem(parent, true);
     }
 
-	// sorting based on z positon
+    // sorting based on z positon
     auto childItems = parent->childItems();
-    std::stable_sort(childItems.begin(), childItems.end(),
-                     [](QQuickItem *lhs, QQuickItem *rhs) { return lhs->z() < rhs->z(); });
+    std::stable_sort(
+        childItems.begin(), childItems.end(), [](QQuickItem* lhs, QQuickItem* rhs) { return lhs->z() < rhs->z(); });
 
     for (int i = childItems.size() - 1; i >= 0; --i) { // backwards to match z order
         const auto child = childItems.at(i);
         // position of child
         const auto requestedPoint = parent->mapToItem(child, pos);
 
-        if (!child->childItems().isEmpty() && (child->contains(requestedPoint) || child->childrenRect().contains(requestedPoint))) {
+        if (!child->childItems().isEmpty()
+            && (child->contains(requestedPoint) || combinedChildrenRect(child).contains(requestedPoint))) {
             const int count = objects.count();
             int bc; // possibly better candidate among subChildren
 
