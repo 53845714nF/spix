@@ -11,6 +11,7 @@
 #include <Scene/Qt/QtItemTools.h>
 #include <Spix/Data/ItemPath.h>
 
+#include <QFile>
 #include <QBuffer>
 #include <QByteArray>
 #include <QGuiApplication>
