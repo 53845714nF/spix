@@ -51,10 +51,17 @@ protected:
 
 TEST(GTestExample, ClickPictures)
 {
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+    srv->mouseClick(spix::ItemPath("mainWindow/(source=icon.png)"));
+    srv->wait(std::chrono::milliseconds(500));
+    srv->mouseClick(spix::ItemPath("mainWindow/(source=icon.png)"));
+    srv->wait(std::chrono::milliseconds(500));
+#else
     srv->mouseClick(spix::ItemPath("mainWindow/(source=qrc:/icon.png)"));
     srv->wait(std::chrono::milliseconds(500));
     srv->mouseClick(spix::ItemPath("mainWindow/(source=qrc:/icon.png)"));
     srv->wait(std::chrono::milliseconds(500));
+#endif
 
     auto result = srv->getStringProperty("mainWindow/results", "text");
 
@@ -67,8 +74,11 @@ Button 1 clicked)RSLT";
 TEST(GTestExample, ClickWithIndex)
 {
     srv->setStringProperty("mainWindow/results", "text", "");
+    srv->wait(std::chrono::milliseconds(500));
     srv->mouseClick(spix::ItemPath("mainWindow/\"Press Me\"#3"));
+    srv->wait(std::chrono::milliseconds(500));
     srv->mouseClick(spix::ItemPath("mainWindow/\"Press Me\""));
+    srv->wait(std::chrono::milliseconds(500));
     srv->mouseClick(spix::ItemPath("mainWindow/\"Press Me\"#2"));
     srv->wait(std::chrono::milliseconds(500));
 
